@@ -64,7 +64,7 @@ def create_prompt(img):
     return [
         {
             "role": "system",
-            "content": [{"type": "text", "text": "You are a radiologist writing a medical report."}]
+            "content": [{"type": "text", "text": "You are a radiologist writing a medical report. Remember that bright/hyperattenuating areas in the kidneys typically indicate kidney stones or calcifications."}]
         },
         {
             "role": "user", 
