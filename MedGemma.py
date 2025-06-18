@@ -2,13 +2,14 @@ import os
 import sys
 import time
 import signal
+import glob
 import numpy as np
 import torch
 from PIL import Image
 from transformers import AutoProcessor, AutoModelForImageTextToText
 
 MODEL_ID = "google/medgemma-4b-it"
-CT_PATH = "CTscan/51F55CCA-B915-4AF4-BBFD-13B05D6C3B7D.jpeg"
+CT_FOLDER = "CTscan"
 MAX_TOKENS = 150
 
 def handle_interrupt(sig, frame):
@@ -42,6 +43,21 @@ def setup_device():
     if device == "cpu":
         print("Warning: CPU inference will be slow")
     return device
+
+def get_ct_files():
+    # Get all JPEG files from CTscan folder
+    patterns = [
+        os.path.join(CT_FOLDER, "*.jpg"),
+        os.path.join(CT_FOLDER, "*.jpeg"),
+        os.path.join(CT_FOLDER, "*.JPG"),
+        os.path.join(CT_FOLDER, "*.JPEG")
+    ]
+    
+    files = []
+    for pattern in patterns:
+        files.extend(glob.glob(pattern))
+    
+    return sorted(files)
 
 def load_model_components():
     try:
@@ -100,31 +116,54 @@ def generate_analysis(model, processor, messages, device):
 def main():
     signal.signal(signal.SIGINT, handle_interrupt)
     
-    start_time = time.time()
     device = setup_device()
     
-    try:
-        pixels, img = load_image(CT_PATH)
-        print(f"Loaded CT scan: {pixels.shape}")
-    except FileNotFoundError:
-        print("CT scan not found, using dummy data")
-        pixels = np.zeros((512, 512), dtype=np.uint16)
-        img = convert_array_to_image(pixels)
+    # Get all CT scan files
+    ct_files = get_ct_files()
+    if not ct_files:
+        print("No JPEG files found in CTscan folder")
+        return
     
+    print(f"Found {len(ct_files)} CT scan files:")
+    for i, file in enumerate(ct_files, 1):
+        print(f"  {i}. {os.path.basename(file)}")
+    print()
+    
+    # Load model once for all analyses
     print("Loading model...")
     model, processor = load_model_components()
     model = model.to(device)
     
-    messages = create_prompt(img)
-    print("Analyzing CT scan...")
-    
-    analysis = generate_analysis(model, processor, messages, device)
-    
-    elapsed = time.time() - start_time
-    print(f"\nAnalysis ({elapsed:.1f}s):")
-    print("-" * 40)
-    print(analysis.strip())
-    print("-" * 40)
+    # Process each CT scan
+    for i, ct_path in enumerate(ct_files, 1):
+        print(f"\n{'='*60}")
+        print(f"ANALYZING CT SCAN {i}/{len(ct_files)}")
+        print(f"File: {os.path.basename(ct_path)}")
+        print(f"{'='*60}")
+        
+        start_time = time.time()
+        
+        try:
+            pixels, img = load_image(ct_path)
+            print(f"Loaded: {pixels.shape}")
+        except FileNotFoundError:
+            print("File not found, skipping...")
+            continue
+        
+        messages = create_prompt(img)
+        print("Analyzing...")
+        
+        analysis = generate_analysis(model, processor, messages, device)
+        
+        elapsed = time.time() - start_time
+        print(f"\nAnalysis ({elapsed:.1f}s):")
+        print("-" * 40)
+        print(analysis.strip())
+        print("-" * 40)
+        
+        if i < len(ct_files):
+            print("\nPress Enter to continue to next scan...")
+            input()
 
 if __name__ == "__main__":
     assert os.path.exists("CTscan"), "CTscan folder missing"
